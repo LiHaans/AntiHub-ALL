@@ -65,7 +65,17 @@ class Settings(BaseSettings):
         ...,
         description="用于加密存储用户API密钥的密钥"
     )
-    
+
+    # 管理员账号配置（可选，用于首次初始化）
+    admin_username: Optional[str] = Field(
+        default=None,
+        description="管理员用户名（首次启动时自动创建）"
+    )
+    admin_password: Optional[str] = Field(
+        default=None,
+        description="管理员密码（首次启动时自动创建）"
+    )
+
     @field_validator("app_env")
     @classmethod
     def validate_app_env(cls, v: str) -> str:
