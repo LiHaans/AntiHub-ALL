@@ -346,7 +346,8 @@ export async function sendEmailLogin(email: string): Promise<{ success: boolean;
  * 用户名密码登录
  */
 export async function login(credentials: LoginRequest): Promise<LoginResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+  // 走 Next.js 同域 API，由服务端设置 httpOnly cookies（用于 /dashboard middleware 鉴权）
+  const response = await fetch(`/api/auth/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
