@@ -15,9 +15,14 @@ import {
   updateKiroAccountStatus,
   updateKiroAccountName,
   getKiroAccountBalance,
+  getQwenAccounts,
+  deleteQwenAccount,
+  updateQwenAccountStatus,
+  updateQwenAccountName,
   type Account,
   type AntigravityAccountDetail,
-  type KiroAccount
+  type KiroAccount,
+  type QwenAccount
 } from '@/lib/api';
 import { AddAccountDrawer } from '@/components/add-account-drawer';
 import { Button } from '@/components/ui/button';
@@ -50,7 +55,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip } from '@/components/ui/tooltip-card';
-import { IconCirclePlusFilled, IconDotsVertical, IconRefresh, IconTrash, IconToggleLeft, IconToggleRight, IconExternalLink, IconChartBar, IconChevronDown, IconEdit, IconAlertTriangle, IconArrowsExchange } from '@tabler/icons-react';
+import { IconCirclePlusFilled, IconDotsVertical, IconRefresh, IconTrash, IconToggleLeft, IconToggleRight, IconExternalLink, IconChartBar, IconEdit, IconAlertTriangle, IconArrowsExchange } from '@tabler/icons-react';
 import {
   Select,
   SelectContent,
@@ -59,16 +64,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { MorphingSquare } from '@/components/ui/morphing-square';
-import { Gemini, Claude, OpenAI } from '@lobehub/icons';
+import { Gemini, Claude, OpenAI, Qwen } from '@lobehub/icons';
 
 export default function AccountsPage() {
   const toasterRef = useRef<ToasterRef>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [kiroAccounts, setKiroAccounts] = useState<KiroAccount[]>([]);
   const [kiroBalances, setKiroBalances] = useState<Record<string, number>>({});
+  const [qwenAccounts, setQwenAccounts] = useState<QwenAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'antigravity' | 'kiro'>('antigravity');
+  const [activeTab, setActiveTab] = useState<'antigravity' | 'kiro' | 'qwen'>('antigravity');
 
   // 添加账号 Drawer 状态
   const [isAddDrawerOpen, setIsAddDrawerOpen] = useState(false);
@@ -90,6 +96,12 @@ export default function AccountsPage() {
   const [renamingAntigravityAccount, setRenamingAntigravityAccount] = useState<Account | null>(null);
   const [newAntigravityAccountName, setNewAntigravityAccountName] = useState('');
   const [isRenamingAntigravity, setIsRenamingAntigravity] = useState(false);
+
+  // 重命名 Qwen 账号 Dialog 状态
+  const [isQwenRenameDialogOpen, setIsQwenRenameDialogOpen] = useState(false);
+  const [renamingQwenAccount, setRenamingQwenAccount] = useState<QwenAccount | null>(null);
+  const [newQwenAccountName, setNewQwenAccountName] = useState('');
+  const [isRenamingQwen, setIsRenamingQwen] = useState(false);
 
   // Antigravity 账号详情 Dialog 状态
   const [isAntigravityDetailDialogOpen, setIsAntigravityDetailDialogOpen] = useState(false);
@@ -150,6 +162,15 @@ export default function AccountsPage() {
         setKiroAccounts([]);
         setKiroBalances({});
       }
+
+      // 加载 Qwen 账号
+      try {
+        const qwenData = await getQwenAccounts();
+        setQwenAccounts(qwenData);
+      } catch (err) {
+        console.log('未加载Qwen账号');
+        setQwenAccounts([]);
+      }
     } catch (err) {
       toasterRef.current?.show({
         title: '加载失败',
@@ -159,6 +180,7 @@ export default function AccountsPage() {
       });
       setAccounts([]);
       setKiroAccounts([]);
+      setQwenAccounts([]);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -334,6 +356,35 @@ export default function AccountsPage() {
     });
   };
 
+  const handleDeleteQwen = (accountId: string) => {
+    showConfirmDialog({
+      title: '删除账号',
+      description: '确定要删除这个 Qwen 账号吗？此操作无法撤销。',
+      confirmText: '删除',
+      cancelText: '取消',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          await deleteQwenAccount(accountId);
+          setQwenAccounts(qwenAccounts.filter(a => a.account_id !== accountId));
+          toasterRef.current?.show({
+            title: '删除成功',
+            message: 'Qwen账号已删除',
+            variant: 'success',
+            position: 'top-right',
+          });
+        } catch (err) {
+          toasterRef.current?.show({
+            title: '删除失败',
+            message: err instanceof Error ? err.message : '删除失败',
+            variant: 'error',
+            position: 'top-right',
+          });
+        }
+      },
+    });
+  };
+
   const handleToggleKiroStatus = async (account: KiroAccount) => {
     try {
       const newStatus = account.status === 1 ? 0 : 1;
@@ -359,10 +410,41 @@ export default function AccountsPage() {
     }
   };
 
+  const handleToggleQwenStatus = async (account: QwenAccount) => {
+    try {
+      const newStatus = account.status === 1 ? 0 : 1;
+      await updateQwenAccountStatus(account.account_id, newStatus);
+      setQwenAccounts(qwenAccounts.map(a =>
+        a.account_id === account.account_id
+          ? { ...a, status: newStatus }
+          : a
+      ));
+      toasterRef.current?.show({
+        title: '状态已更新',
+        message: `账号已${newStatus === 1 ? '启用' : '禁用'}`,
+        variant: 'success',
+        position: 'top-right',
+      });
+    } catch (err) {
+      toasterRef.current?.show({
+        title: '更新失败',
+        message: err instanceof Error ? err.message : '更新状态失败',
+        variant: 'error',
+        position: 'top-right',
+      });
+    }
+  };
+
   const handleRenameKiro = (account: KiroAccount) => {
     setRenamingAccount(account);
     setNewAccountName(account.account_name || account.email || '');
     setIsRenameDialogOpen(true);
+  };
+
+  const handleRenameQwen = (account: QwenAccount) => {
+    setRenamingQwenAccount(account);
+    setNewQwenAccountName(account.account_name || account.email || '');
+    setIsQwenRenameDialogOpen(true);
   };
 
   const handleRenameAntigravity = (account: Account) => {
@@ -408,6 +490,46 @@ export default function AccountsPage() {
       });
     } finally {
       setIsRenamingAntigravity(false);
+    }
+  };
+
+  const handleSubmitQwenRename = async () => {
+    if (!renamingQwenAccount) return;
+
+    if (!newQwenAccountName.trim()) {
+      toasterRef.current?.show({
+        title: '输入错误',
+        message: '账号名称不能为空',
+        variant: 'warning',
+        position: 'top-right',
+      });
+      return;
+    }
+
+    setIsRenamingQwen(true);
+    try {
+      await updateQwenAccountName(renamingQwenAccount.account_id, newQwenAccountName.trim());
+      setQwenAccounts(qwenAccounts.map(a =>
+        a.account_id === renamingQwenAccount.account_id
+          ? { ...a, account_name: newQwenAccountName.trim() }
+          : a
+      ));
+      setIsQwenRenameDialogOpen(false);
+      toasterRef.current?.show({
+        title: '重命名成功',
+        message: '账号名称已更新',
+        variant: 'success',
+        position: 'top-right',
+      });
+    } catch (err) {
+      toasterRef.current?.show({
+        title: '重命名失败',
+        message: err instanceof Error ? err.message : '更新账号名称失败',
+        variant: 'error',
+        position: 'top-right',
+      });
+    } finally {
+      setIsRenamingQwen(false);
     }
   };
 
@@ -626,7 +748,7 @@ export default function AccountsPage() {
           <div></div>
           <div className="flex gap-2">
             {/* 账号配置切换下拉菜单 */}
-            <Select value={activeTab} onValueChange={(value: 'antigravity' | 'kiro') => setActiveTab(value)}>
+            <Select value={activeTab} onValueChange={(value: 'antigravity' | 'kiro' | 'qwen') => setActiveTab(value)}>
               <SelectTrigger className="w-[160px] h-9">
                 <SelectValue>
                   {activeTab === 'antigravity' ? (
@@ -634,10 +756,15 @@ export default function AccountsPage() {
                       <img src="/antigravity-logo.png" alt="" className="size-4 rounded" />
                       Antigravity
                     </span>
-                  ) : (
+                  ) : activeTab === 'kiro' ? (
                     <span className="flex items-center gap-2">
                       <img src="/kiro.png" alt="" className="size-4 rounded" />
                       Kiro
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      <Qwen className="size-4" />
+                      Qwen
                     </span>
                   )}
                 </SelectValue>
@@ -653,6 +780,12 @@ export default function AccountsPage() {
                   <span className="flex items-center gap-2">
                     <img src="/kiro.png" alt="" className="size-4 rounded" />
                     Kiro
+                  </span>
+                </SelectItem>
+                <SelectItem value="qwen">
+                  <span className="flex items-center gap-2">
+                    <Qwen className="size-4" />
+                    Qwen
                   </span>
                 </SelectItem>
               </SelectContent>
@@ -692,7 +825,7 @@ export default function AccountsPage() {
               {accounts.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
                   <p className="text-lg mb-2">暂无Antigravity账号</p>
-                  <p className="text-sm">点击"添加账号"按钮添加您的第一个账号</p>
+                  <p className="text-sm">点击“添加账号”按钮添加您的第一个账号</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto -mx-6 px-6 md:mx-0 md:px-0">
@@ -831,7 +964,7 @@ export default function AccountsPage() {
               {kiroAccounts.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
                   <p className="text-lg mb-2">暂无Kiro账号</p>
-                  <p className="text-sm">点击"添加账号"按钮添加您的第一个Kiro账号</p>
+                  <p className="text-sm">点击“添加账号”按钮添加您的第一个Kiro账号</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto -mx-6 px-6 md:mx-0 md:px-0">
@@ -905,6 +1038,117 @@ export default function AccountsPage() {
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() => handleDeleteKiro(account.account_id)}
+                                  className="text-red-600"
+                                >
+                                  <IconTrash className="size-4 mr-2" />
+                                  删除
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Qwen账号列表 */}
+        {activeTab === 'qwen' && (
+          <Card>
+            <CardHeader className="text-left">
+              <CardTitle className="text-left">Qwen账号</CardTitle>
+              <CardDescription className="text-left">
+                共 {qwenAccounts.length} 个账号
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {qwenAccounts.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <p className="text-lg mb-2">暂无Qwen账号</p>
+                  <p className="text-sm">点击“添加账号”按钮导入您的第一个Qwen账号</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto -mx-6 px-6 md:mx-0 md:px-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="min-w-[120px]">账号ID</TableHead>
+                        <TableHead className="min-w-[160px]">账号名称</TableHead>
+                        <TableHead className="min-w-[200px]">邮箱</TableHead>
+                        <TableHead className="min-w-[80px]">类型</TableHead>
+                        <TableHead className="min-w-[80px]">状态</TableHead>
+                        <TableHead className="min-w-[80px]">刷新</TableHead>
+                        <TableHead className="min-w-[160px]">过期时间</TableHead>
+                        <TableHead className="min-w-[160px]">添加时间</TableHead>
+                        <TableHead className="text-right min-w-[80px]">操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {qwenAccounts.map((account) => (
+                        <TableRow key={account.account_id}>
+                          <TableCell className="font-mono text-sm">
+                            {account.account_id}
+                          </TableCell>
+                          <TableCell>
+                            {account.account_name || account.email || '未命名'}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {account.email || '-'}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={account.is_shared === 1 ? 'default' : 'secondary'}>
+                              {account.is_shared === 1 ? '共享' : '专属'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={account.status === 1 ? 'default' : 'secondary'}>
+                              {account.status === 1 ? '启用' : '禁用'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {account.need_refresh ? (
+                              <Badge variant="destructive">需要</Badge>
+                            ) : (
+                              <Badge variant="secondary">正常</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                            {account.expires_at ? new Date(account.expires_at).toLocaleString('zh-CN') : '-'}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                            {account.created_at ? new Date(account.created_at).toLocaleString('zh-CN') : '-'}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon">
+                                  <IconDotsVertical className="size-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleRenameQwen(account)}>
+                                  <IconEdit className="size-4 mr-2" />
+                                  重命名
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleToggleQwenStatus(account)}>
+                                  {account.status === 1 ? (
+                                    <>
+                                      <IconToggleLeft className="size-4 mr-2" />
+                                      禁用
+                                    </>
+                                  ) : (
+                                    <>
+                                      <IconToggleRight className="size-4 mr-2" />
+                                      启用
+                                    </>
+                                  )}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleDeleteQwen(account.account_id)}
                                   className="text-red-600"
                                 >
                                   <IconTrash className="size-4 mr-2" />
@@ -1051,6 +1295,56 @@ export default function AccountsPage() {
               disabled={isRenaming || !newAccountName.trim()}
             >
               {isRenaming ? (
+                <>
+                  <MorphingSquare className="size-4 mr-2" />
+                  保存中...
+                </>
+              ) : (
+                '保存'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 重命名 Qwen 账号 Dialog */}
+      <Dialog open={isQwenRenameDialogOpen} onOpenChange={setIsQwenRenameDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>重命名账号</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="qwen-account-name">新的账号名称</Label>
+              <Input
+                id="qwen-account-name"
+                placeholder="输入账号名称"
+                value={newQwenAccountName}
+                onChange={(e) => setNewQwenAccountName(e.target.value)}
+                maxLength={50}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !isRenamingQwen) {
+                    handleSubmitQwenRename();
+                  }
+                }}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsQwenRenameDialogOpen(false)}
+              disabled={isRenamingQwen}
+            >
+              取消
+            </Button>
+            <Button
+              onClick={handleSubmitQwenRename}
+              disabled={isRenamingQwen || !newQwenAccountName.trim()}
+            >
+              {isRenamingQwen ? (
                 <>
                   <MorphingSquare className="size-4 mr-2" />
                   保存中...

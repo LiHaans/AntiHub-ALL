@@ -1,4 +1,5 @@
 import express from 'express';
+import { Readable } from 'stream';
 import oauthService from '../services/oauth.service.js';
 import accountService from '../services/account.service.js';
 import quotaService from '../services/quota.service.js';
@@ -860,6 +861,9 @@ router.put('/api/accounts/:cookie_id/type', authenticateApiKey, async (req, res)
           logger.error(`增加共享配额失败: model=${quota.model_name}, error=${quotaError.message}`);
         }
       }
+    } else if (accountType === 'qwen') {
+      const qwenClient = (await import('../api/qwen_client.js')).default;
+      res.json(qwenClient.getAvailableModels());
     } else {
       // 共享账号 → 专属账号：减少用户共享配额
       logger.info(`账号类型转换: 共享→专属, cookie_id=${cookie_id}, user_id=${existingAccount.user_id}`);
@@ -1204,7 +1208,7 @@ router.get('/api/quotas/consumption/stats/:model_name', authenticateApiKey, asyn
 /**
  * 获取模型列表
  * GET /v1/models
- * Header: X-Account-Type: antigravity (默认) 或 kiro
+ * Header: X-Account-Type: antigravity (默认) / kiro / qwen
  */
 router.get('/v1/models', authenticateApiKey, async (req, res) => {
   try {
@@ -1232,7 +1236,7 @@ router.get('/v1/models', authenticateApiKey, async (req, res) => {
  * 聊天补全
  * POST /v1/chat/completions
  * Body: { messages, model, stream, ... }
- * Header: X-Account-Type: antigravity (默认) 或 kiro
+ * Header: X-Account-Type: antigravity (默认) / kiro / qwen
  */
 router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
   // 设置10分钟超时（避免长对话被断开）
@@ -1254,10 +1258,71 @@ router.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
   // 从请求头获取账号类型，默认为 antigravity
   const accountType = (req.headers['x-account-type'] || 'antigravity').toLowerCase();
   
+  if (accountType === 'qwen') {
+    const qwenClient = (await import('../api/qwen_client.js')).default;
+
+    if (!model) {
+      return res.status(400).json({ error: 'model是必需的' });
+    }
+
+    const controller = new AbortController();
+    const abort = () => {
+      try {
+        controller.abort();
+      } catch {}
+    };
+    res.on('close', abort);
+
+    try {
+      const upstreamResp = await qwenClient.requestChatCompletions({
+        user_id: req.user.user_id,
+        user: req.user,
+        body: req.body,
+        signal: controller.signal,
+      });
+
+      if (!upstreamResp.ok) {
+        const text = await upstreamResp.text().catch(() => '');
+        logger.error(
+          `Qwen请求失败: status=${upstreamResp.status}, body=${(text || '').slice(0, 2000)}`
+        );
+        return res
+          .status(upstreamResp.status || 500)
+          .json({ error: text || `Qwen上游错误: ${upstreamResp.status}` });
+      }
+
+      if (stream) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+
+        if (!upstreamResp.body) {
+          return res.status(500).json({ error: 'Qwen上游无响应体' });
+        }
+
+        const nodeStream = Readable.fromWeb(upstreamResp.body);
+        nodeStream.on('error', (err) => {
+          logger.warn(`Qwen流式转发失败: ${err?.message || err}`);
+          abort();
+        });
+        nodeStream.pipe(res);
+        return;
+      }
+
+      const json = await upstreamResp.json();
+      return res.status(200).json(json);
+    } catch (error) {
+      const message = typeof error?.message === 'string' ? error.message : 'Qwen请求失败';
+      logger.error('Qwen聊天补全失败:', message);
+      return res.status(500).json({ error: message });
+    }
+  }
+
   if (accountType === 'kiro') {
     // 使用 kiro 账号系统
     const kiroClient = (await import('../api/kiro_client.js')).default;
-    
+
     if (!model) {
       return res.status(400).json({ error: 'model是必需的' });
     }

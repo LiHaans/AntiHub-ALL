@@ -5,6 +5,7 @@ import database from '../db/database.js';
 import redisService from '../services/redis.service.js';
 import routes from './routes.js';
 import kiroRoutes from './kiro_routes.js';
+import qwenRoutes from './qwen_routes.js';
 
 // 设置日志级别
 if (config.logging?.level) {
@@ -53,6 +54,7 @@ app.use((req, res, next) => {
 // 使用路由（认证在routes.js中处理）
 app.use(routes);
 app.use(kiroRoutes);
+app.use(qwenRoutes);
 
 const server = app.listen(config.server.port, config.server.host, () => {
   logger.info(`服务器已启动: ${config.server.host}:${config.server.port}`);

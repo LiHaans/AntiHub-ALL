@@ -935,6 +935,32 @@ COMMENT ON COLUMN public.users.updated_at IS '更新时间';
 
 
 --
+-- Name: qwen_accounts; Type: TABLE; Schema: public; Owner: antigravity
+--
+
+CREATE TABLE public.qwen_accounts (
+    account_id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    user_id uuid NOT NULL,
+    account_name character varying(100),
+    is_shared smallint DEFAULT 0 NOT NULL,
+    access_token text NOT NULL,
+    refresh_token text,
+    expires_at bigint,
+    last_refresh text,
+    resource_url character varying(255) DEFAULT 'portal.qwen.ai'::character varying,
+    email character varying(255),
+    status smallint DEFAULT 1 NOT NULL,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    need_refresh boolean DEFAULT false NOT NULL,
+    CONSTRAINT qwen_accounts_is_shared_check CHECK ((is_shared = ANY (ARRAY[0, 1]))),
+    CONSTRAINT qwen_accounts_status_check CHECK ((status = ANY (ARRAY[0, 1])))
+);
+
+
+ALTER TABLE public.qwen_accounts OWNER TO antigravity;
+
+--
 -- Name: accounts accounts_pkey; Type: CONSTRAINT; Schema: public; Owner: antigravity
 --
 
@@ -948,6 +974,13 @@ ALTER TABLE ONLY public.accounts
 
 ALTER TABLE ONLY public.kiro_accounts
     ADD CONSTRAINT kiro_accounts_pkey PRIMARY KEY (account_id);
+
+--
+-- Name: qwen_accounts qwen_accounts_pkey; Type: CONSTRAINT; Schema: public; Owner: antigravity
+--
+
+ALTER TABLE ONLY public.qwen_accounts
+    ADD CONSTRAINT qwen_accounts_pkey PRIMARY KEY (account_id);
 
 
 --
@@ -1125,6 +1158,36 @@ CREATE INDEX idx_kiro_accounts_user_id ON public.kiro_accounts USING btree (user
 
 CREATE INDEX idx_kiro_accounts_userid ON public.kiro_accounts USING btree (userid);
 
+--
+-- Name: idx_qwen_accounts_email; Type: INDEX; Schema: public; Owner: antigravity
+--
+
+CREATE UNIQUE INDEX idx_qwen_accounts_email ON public.qwen_accounts USING btree (email) WHERE (email IS NOT NULL);
+
+--
+-- Name: idx_qwen_accounts_is_shared; Type: INDEX; Schema: public; Owner: antigravity
+--
+
+CREATE INDEX idx_qwen_accounts_is_shared ON public.qwen_accounts USING btree (is_shared);
+
+--
+-- Name: idx_qwen_accounts_need_refresh; Type: INDEX; Schema: public; Owner: antigravity
+--
+
+CREATE INDEX idx_qwen_accounts_need_refresh ON public.qwen_accounts USING btree (need_refresh);
+
+--
+-- Name: idx_qwen_accounts_status; Type: INDEX; Schema: public; Owner: antigravity
+--
+
+CREATE INDEX idx_qwen_accounts_status ON public.qwen_accounts USING btree (status);
+
+--
+-- Name: idx_qwen_accounts_user_id; Type: INDEX; Schema: public; Owner: antigravity
+--
+
+CREATE INDEX idx_qwen_accounts_user_id ON public.qwen_accounts USING btree (user_id);
+
 
 --
 -- Name: idx_kiro_consumption_account_id; Type: INDEX; Schema: public; Owner: antigravity
@@ -1265,6 +1328,12 @@ CREATE TRIGGER update_accounts_updated_at BEFORE UPDATE ON public.accounts FOR E
 
 CREATE TRIGGER update_kiro_accounts_updated_at BEFORE UPDATE ON public.kiro_accounts FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+--
+-- Name: qwen_accounts update_qwen_accounts_updated_at; Type: TRIGGER; Schema: public; Owner: antigravity
+--
+
+CREATE TRIGGER update_qwen_accounts_updated_at BEFORE UPDATE ON public.qwen_accounts FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
 
 --
 -- Name: users update_users_updated_at; Type: TRIGGER; Schema: public; Owner: antigravity
@@ -1319,6 +1388,13 @@ ALTER TABLE ONLY public.user_shared_quota_pool
 
 ALTER TABLE ONLY public.kiro_accounts
     ADD CONSTRAINT kiro_accounts_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(user_id) ON DELETE CASCADE;
+
+--
+-- Name: qwen_accounts qwen_accounts_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: antigravity
+--
+
+ALTER TABLE ONLY public.qwen_accounts
+    ADD CONSTRAINT qwen_accounts_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(user_id) ON DELETE CASCADE;
 
 
 --

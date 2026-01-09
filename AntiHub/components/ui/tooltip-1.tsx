@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useId } from "react";
 import { PlacesType, Tooltip as ReactTooltip } from "react-tooltip";
 import clsx from "clsx";
 
@@ -33,10 +33,8 @@ export const Tooltip = ({
   center = true,
   className
 }: TooltipProps) => {
-  const id = useMemo(() => {
-    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  }, []);
+  const reactId = useId();
+  const id = `tooltip-${reactId.replace(/:/g, "")}`;
 
   return (
     <div>

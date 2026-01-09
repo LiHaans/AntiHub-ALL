@@ -1,7 +1,7 @@
 """
 OpenAI兼容的API端点
 支持API key或JWT token认证
-根据API key的config_type自动选择Antigravity或Kiro配置
+根据API key的config_type自动选择Antigravity / Kiro / Qwen配置
 用户通过我们的key/token调用，我们再用plug-in key调用plug-in-api
 """
 from typing import List, Dict, Any, Optional
@@ -33,7 +33,7 @@ def get_kiro_service(
 @router.get(
     "/models",
     summary="获取模型列表",
-    description="获取可用的AI模型列表（OpenAI兼容）。根据API key的config_type自动选择Antigravity或Kiro配置"
+    description="获取可用的AI模型列表（OpenAI兼容）。根据API key的config_type自动选择Antigravity / Kiro / Qwen配置"
 )
 async def list_models(
     request: Request,
@@ -46,9 +46,9 @@ async def list_models(
     支持API key或JWT token认证
     
     **配置选择:**
-    - 使用API key认证时，根据API key创建时选择的config_type自动选择配置
-    - 使用JWT token认证时，默认使用Antigravity配置，但可以通过X-Api-Type请求头指定配置
-    - Kiro配置需要beta权限
+    - 使用API key认证时，根据API key创建时选择的config_type自动选择配置（antigravity/kiro/qwen）
+    - 使用JWT token认证时，默认使用Antigravity配置，但可以通过X-Api-Type请求头指定配置（antigravity/kiro/qwen）
+    - Kiro配置需要beta权限（qwen不需要）
     """
     try:
         # 判断使用哪个服务
@@ -58,7 +58,7 @@ async def list_models(
         # 如果是JWT token认证（无_config_type），检查请求头
         if config_type is None:
             api_type = request.headers.get("X-Api-Type")
-            if api_type in ["kiro", "antigravity"]:
+            if api_type in ["kiro", "antigravity", "qwen"]:
                 config_type = api_type
         
         use_kiro = config_type == "kiro"
@@ -115,7 +115,7 @@ async def list_models(
 @router.post(
     "/chat/completions",
     summary="聊天补全",
-    description="使用plug-in-api进行聊天补全（OpenAI兼容）。根据API key的config_type自动选择Antigravity或Kiro配置"
+    description="使用plug-in-api进行聊天补全（OpenAI兼容）。根据API key的config_type自动选择Antigravity / Kiro / Qwen配置"
 )
 async def chat_completions(
     request: ChatCompletionRequest,
@@ -128,12 +128,12 @@ async def chat_completions(
     聊天补全
     支持两种认证方式：
     1. API key认证 - 用于程序调用，根据API key的config_type自动选择配置
-    2. JWT token认证 - 用于网页聊天，默认使用Antigravity配置，但可以通过X-Api-Type请求头指定配置
+    2. JWT token认证 - 用于网页聊天，默认使用Antigravity配置，但可以通过X-Api-Type请求头指定配置（antigravity/kiro/qwen）
     
     **配置选择:**
-    - 使用API key时，根据创建时选择的config_type（antigravity/kiro）自动路由
-    - 使用JWT token时，默认使用Antigravity配置，但可以通过X-Api-Type请求头指定配置
-    - Kiro配置需要beta权限
+    - 使用API key时，根据创建时选择的config_type（antigravity/kiro/qwen）自动路由
+    - 使用JWT token时，默认使用Antigravity配置，但可以通过X-Api-Type请求头指定配置（antigravity/kiro/qwen）
+    - Kiro配置需要beta权限（qwen不需要）
     
     我们使用用户对应的plug-in key调用plug-in-api
     """
@@ -144,7 +144,7 @@ async def chat_completions(
         # 如果是JWT token认证（无_config_type），检查请求头
         if config_type is None:
             api_type = raw_request.headers.get("X-Api-Type")
-            if api_type in ["kiro", "antigravity"]:
+            if api_type in ["kiro", "antigravity", "qwen"]:
                 config_type = api_type
         
         use_kiro = config_type == "kiro"

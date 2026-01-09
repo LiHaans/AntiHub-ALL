@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from './button';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 import {
@@ -89,12 +90,12 @@ export function AuthPage() {
 					<div className="bg-[radial-gradient(50%_50%_at_50%_50%,rgba(255,255,255,0.08)_0,rgba(255,255,255,0.01)_80%,transparent_100%)] absolute top-0 right-0 h-320 w-60 [translate:5%_-50%] rounded-full" />
 					<div className="bg-[radial-gradient(50%_50%_at_50%_50%,rgba(255,255,255,0.08)_0,rgba(255,255,255,0.01)_80%,transparent_100%)] absolute top-0 right-0 h-320 w-60 -translate-y-87.5 rounded-full" />
 				</div>
-				<Button variant="ghost" className="absolute top-7 left-5 text-white hover:bg-white/30 hover:text-white" asChild>
-					<a href="/">
-						<ChevronLeftIcon className='size-4 me-2' />
-						首页
-					</a>
-				</Button>
+                          <Button variant="ghost" className="absolute top-7 left-5 text-white hover:bg-white/30 hover:text-white" asChild>
+                                  <Link href="/">
+                                          <ChevronLeftIcon className='size-4 me-2' />
+                                          首页
+                                  </Link>
+                          </Button>
 				<div className="mx-auto space-y-4 sm:w-sm">
 					<div className="flex items-center gap-2 lg:hidden">
 						<img src="/logo_dark.png" alt="Logo" className="h-8" />

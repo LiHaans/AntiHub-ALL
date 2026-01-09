@@ -725,7 +725,7 @@ export interface PluginAPIKey {
   user_id: number;
   key_preview: string;
   name: string;
-  config_type: 'antigravity' | 'kiro'; // 配置类型
+  config_type: 'antigravity' | 'kiro' | 'qwen'; // 配置类型
   is_active: boolean;
   created_at: string;
   last_used_at: string | null;
@@ -737,7 +737,7 @@ export interface CreateAPIKeyResponse {
   user_id: number;
   key: string;
   name: string;
-  config_type: 'antigravity' | 'kiro'; // 配置类型
+  config_type: 'antigravity' | 'kiro' | 'qwen'; // 配置类型
   is_active: boolean;
   created_at: string;
   last_used_at: string | null;
@@ -768,7 +768,7 @@ export async function getAPIKeyInfo(): Promise<PluginAPIKey | null> {
  */
 export async function generateAPIKey(
   name: string = 'My API Key',
-  configType: 'antigravity' | 'kiro' = 'antigravity'
+  configType: 'antigravity' | 'kiro' | 'qwen' = 'antigravity'
 ): Promise<CreateAPIKeyResponse> {
   return fetchWithAuth<CreateAPIKeyResponse>(
     `${API_BASE_URL}/api/api-keys`,
@@ -975,7 +975,30 @@ export async function getSharedPoolStats(): Promise<SharedPoolStats> {
 
 // ==================== 聊天相关 API ====================
 
-export type ApiType = 'antigravity' | 'kiro';
+export type ApiType = 'antigravity' | 'kiro' | 'qwen';
+
+export interface OpenAIModel {
+  id: string;
+  object: string;
+  created?: number;
+  owned_by?: string;
+}
+
+export interface OpenAIModelsResponse {
+  object: string;
+  data: OpenAIModel[];
+}
+
+export async function getOpenAIModels(apiType?: ApiType): Promise<OpenAIModelsResponse> {
+  const headers: HeadersInit = {};
+  if (apiType) {
+    headers['X-Api-Type'] = apiType;
+  }
+  return fetchWithAuth<OpenAIModelsResponse>(`${API_BASE_URL}/v1/models`, {
+    method: 'GET',
+    headers,
+  });
+}
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -1659,4 +1682,88 @@ export async function pollKiroOAuthStatus(state: string): Promise<{
     `${API_BASE_URL}/api/kiro/oauth/status/${state}`,
     { method: 'GET' }
   );
+}
+
+// ==================== Qwen 账号管理相关 API ====================
+
+export interface QwenAccount {
+  account_id: string;
+  user_id: string;
+  is_shared: number; // 0=专属, 1=共享
+  status: number; // 0=禁用, 1=启用
+  need_refresh: boolean;
+  expires_at: number | null;
+  email: string | null;
+  account_name: string | null;
+  resource_url: string;
+  last_refresh: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface QwenAccountImportPayload {
+  credential_json: string;
+  is_shared?: number;
+  account_name?: string;
+}
+
+export async function importQwenAccount(payload: QwenAccountImportPayload): Promise<QwenAccount> {
+  const result = await fetchWithAuth<{ success: boolean; data: QwenAccount }>(
+    `${API_BASE_URL}/api/qwen/accounts/import`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        credential_json: payload.credential_json,
+        is_shared: payload.is_shared ?? 0,
+        account_name: payload.account_name,
+      }),
+    }
+  );
+  return result.data;
+}
+
+export async function getQwenAccounts(): Promise<QwenAccount[]> {
+  const result = await fetchWithAuth<{ success: boolean; data: QwenAccount[] }>(
+    `${API_BASE_URL}/api/qwen/accounts`,
+    { method: 'GET' }
+  );
+  return result.data;
+}
+
+export async function getQwenAccount(accountId: string): Promise<QwenAccount> {
+  const result = await fetchWithAuth<{ success: boolean; data: QwenAccount }>(
+    `${API_BASE_URL}/api/qwen/accounts/${accountId}`,
+    { method: 'GET' }
+  );
+  return result.data;
+}
+
+export async function updateQwenAccountStatus(accountId: string, status: number): Promise<QwenAccount> {
+  const result = await fetchWithAuth<{ success: boolean; data: QwenAccount }>(
+    `${API_BASE_URL}/api/qwen/accounts/${accountId}/status`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    }
+  );
+  return result.data;
+}
+
+export async function updateQwenAccountName(accountId: string, accountName: string): Promise<QwenAccount> {
+  const result = await fetchWithAuth<{ success: boolean; data: QwenAccount }>(
+    `${API_BASE_URL}/api/qwen/accounts/${accountId}/name`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ account_name: accountName }),
+    }
+  );
+  return result.data;
+}
+
+export async function deleteQwenAccount(accountId: string): Promise<any> {
+  const result = await fetchWithAuth<{ success: boolean; data: any }>(
+    `${API_BASE_URL}/api/qwen/accounts/${accountId}`,
+    { method: 'DELETE' }
+  );
+  return result.data;
 }

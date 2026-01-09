@@ -1,7 +1,15 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { createKiroAccount, getOAuthAuthorizeUrl, submitOAuthCallback, getKiroOAuthAuthorizeUrl, pollKiroOAuthStatus, importAccountByRefreshToken } from '@/lib/api';
+import {
+  createKiroAccount,
+  getOAuthAuthorizeUrl,
+  submitOAuthCallback,
+  getKiroOAuthAuthorizeUrl,
+  pollKiroOAuthStatus,
+  importAccountByRefreshToken,
+  importQwenAccount,
+} from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Button as StatefulButton } from '@/components/ui/stateful-button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +23,7 @@ import {
   DrawerTitle,
 } from '@/components/ui/drawer';
 import { IconExternalLink, IconCopy, IconX } from '@tabler/icons-react';
+import { Qwen } from '@lobehub/icons';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import Toaster, { ToasterRef } from '@/components/ui/toast';
@@ -30,7 +39,7 @@ export function AddAccountDrawer({ open, onOpenChange, onSuccess }: AddAccountDr
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [step, setStep] = useState<'platform' | 'provider' | 'method' | 'authorize'>('platform');
-  const [platform, setPlatform] = useState<'antigravity' | 'kiro' | ''>('');
+  const [platform, setPlatform] = useState<'antigravity' | 'kiro' | 'qwen' | ''>('');
   const [provider, setProvider] = useState<'Google' | 'Github' | ''>(''); // Kiro OAuth提供商
   const [loginMethod, setLoginMethod] = useState<'antihook' | 'manual' | 'refresh_token' | ''>(''); // Antigravity 登录方式
   const [kiroLoginMethod, setKiroLoginMethod] = useState<'oauth' | 'refresh_token' | ''>('');
@@ -40,6 +49,9 @@ export function AddAccountDrawer({ open, onOpenChange, onSuccess }: AddAccountDr
   const [kiroImportClientSecret, setKiroImportClientSecret] = useState('');
   const [kiroImportAccountName, setKiroImportAccountName] = useState('');
   const [antigravityImportRefreshToken, setAntigravityImportRefreshToken] = useState('');
+  const [qwenCredentialJson, setQwenCredentialJson] = useState('');
+  const [qwenAccountName, setQwenAccountName] = useState('');
+  const [qwenIsShared, setQwenIsShared] = useState<number>(0);
   const [oauthUrl, setOauthUrl] = useState('');
   const [oauthState, setOauthState] = useState(''); // Kiro OAuth state
   const [callbackUrl, setCallbackUrl] = useState('');
@@ -69,6 +81,11 @@ export function AddAccountDrawer({ open, onOpenChange, onSuccess }: AddAccountDr
         });
         return;
       }
+      if (platform === 'qwen') {
+        setStep('authorize');
+        return;
+      }
+
       setStep('method');
     } else if (step === 'provider') {
       if (!provider) {
@@ -100,6 +117,11 @@ export function AddAccountDrawer({ open, onOpenChange, onSuccess }: AddAccountDr
         throw err;
       }
     } else if (step === 'method') {
+      if (platform === 'qwen') {
+        setStep('authorize');
+        return;
+      }
+
       if (platform === 'kiro') {
         if (!kiroLoginMethod) {
           toasterRef.current?.show({
@@ -179,7 +201,7 @@ export function AddAccountDrawer({ open, onOpenChange, onSuccess }: AddAccountDr
       setStep('platform');
       if (platform === 'antigravity') {
         setLoginMethod('');
-      } else {
+      } else if (platform === 'kiro') {
         setKiroLoginMethod('');
       }
     } else if (step === 'authorize') {
@@ -196,7 +218,9 @@ export function AddAccountDrawer({ open, onOpenChange, onSuccess }: AddAccountDr
         setCountdown(600);
       }
 
-      if (platform === 'antigravity') {
+      if (platform === 'qwen') {
+        setStep('platform');
+      } else if (platform === 'antigravity') {
         setStep('method');
       } else {
         if (kiroLoginMethod === 'oauth') {
@@ -209,6 +233,9 @@ export function AddAccountDrawer({ open, onOpenChange, onSuccess }: AddAccountDr
       setOauthState('');
       setCallbackUrl('');
       setAntigravityImportRefreshToken('');
+      setQwenCredentialJson('');
+      setQwenAccountName('');
+      setQwenIsShared(0);
     }
   };
 
@@ -458,6 +485,85 @@ export function AddAccountDrawer({ open, onOpenChange, onSuccess }: AddAccountDr
     }
   };
 
+  const handleImportQwenAccount = async () => {
+    const credentialJson = qwenCredentialJson.trim();
+    if (!credentialJson) {
+      toasterRef.current?.show({
+        title: '输入错误',
+        message: '请粘贴 QwenCli JSON 凭证',
+        variant: 'warning',
+        position: 'top-right',
+      });
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(credentialJson);
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('invalid-json');
+      }
+
+      const accessToken = (parsed as any).access_token;
+      const type = (parsed as any).type;
+      if (typeof type === 'string' && type.toLowerCase() !== 'qwen') {
+        toasterRef.current?.show({
+          title: '凭证类型不匹配',
+          message: '此处只接受 Qwen 的凭证（type 应为 qwen）',
+          variant: 'warning',
+          position: 'top-right',
+        });
+        return;
+      }
+      if (typeof accessToken !== 'string' || !accessToken.trim()) {
+        toasterRef.current?.show({
+          title: '凭证不完整',
+          message: '凭证中缺少 access_token，请确认复制的是完整 JSON',
+          variant: 'warning',
+          position: 'top-right',
+        });
+        return;
+      }
+    } catch {
+      toasterRef.current?.show({
+        title: '凭证格式错误',
+        message: '请输入有效的 JSON（建议直接粘贴 QwenCli 导出的原始内容）',
+        variant: 'warning',
+        position: 'top-right',
+      });
+      return;
+    }
+
+    const accountName = qwenAccountName.trim();
+
+    try {
+      await importQwenAccount({
+        credential_json: credentialJson,
+        is_shared: qwenIsShared,
+        account_name: accountName || undefined,
+      });
+
+      toasterRef.current?.show({
+        title: '导入成功',
+        message: 'Qwen 账号已成功添加',
+        variant: 'success',
+        position: 'top-right',
+      });
+
+      window.dispatchEvent(new CustomEvent('accountAdded'));
+      onOpenChange(false);
+      resetState();
+      onSuccess?.();
+    } catch (err) {
+      toasterRef.current?.show({
+        title: '导入失败',
+        message: err instanceof Error ? err.message : '导入 Qwen 账号失败',
+        variant: 'error',
+        position: 'top-right',
+      });
+      throw err;
+    }
+  };
+
   const resetState = () => {
     // 清除所有定时器
     if (timerRef.current) {
@@ -480,6 +586,9 @@ export function AddAccountDrawer({ open, onOpenChange, onSuccess }: AddAccountDr
     setKiroImportClientSecret('');
     setKiroImportAccountName('');
     setAntigravityImportRefreshToken('');
+    setQwenCredentialJson('');
+    setQwenAccountName('');
+    setQwenIsShared(0);
     setOauthUrl('');
     setOauthState('');
     setCallbackUrl('');
@@ -622,6 +731,34 @@ export function AddAccountDrawer({ open, onOpenChange, onSuccess }: AddAccountDr
                     </div>
                     <p className="text-sm text-muted-foreground mt-1">
                       Google 与 Github OAuth
+                    </p>
+                  </div>
+                </label>
+
+                <label
+                  className={cn(
+                    "flex items-center gap-3 p-4 border-2 rounded-lg cursor-pointer transition-colors",
+                    platform === 'qwen' ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="platform"
+                    value="qwen"
+                    checked={platform === 'qwen'}
+                    onChange={(e) => setPlatform(e.target.value as 'qwen')}
+                    className="w-4 h-4"
+                  />
+                  <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+                    <Qwen className="size-6 text-foreground" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold">Qwen</h3>
+                      <Badge variant="secondary">可用</Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      QwenCli JSON 凭证导入
                     </p>
                   </div>
                 </label>
@@ -861,7 +998,98 @@ export function AddAccountDrawer({ open, onOpenChange, onSuccess }: AddAccountDr
           {/* 步骤 5: OAuth 授权 */}
           {step === 'authorize' && (
             <div className="space-y-6">
-              {platform === 'antigravity' && loginMethod === 'refresh_token' ? (
+              {platform === 'qwen' ? (
+                <>
+                  <div className="space-y-3">
+                    <Label className="text-base font-semibold">Qwen 凭证导入</Label>
+                    <p className="text-sm text-muted-foreground">
+                      直接粘贴 QwenCli 导出的 JSON 凭证（包含 access_token 等字段），服务端会校验并写入账号。
+                    </p>
+                    <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                      <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                        <strong>提示</strong>
+                        <br />
+                        凭证包含敏感 token，请只在可信环境中粘贴，并避免截图/外发。
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label htmlFor="qwen-account-name" className="text-base font-semibold">
+                      账号名称（可选）
+                    </Label>
+                    <Input
+                      id="qwen-account-name"
+                      placeholder="给这个账号起个名字（可不填）"
+                      value={qwenAccountName}
+                      onChange={(e) => setQwenAccountName(e.target.value)}
+                      className="h-12"
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label className="text-base font-semibold">账号类型</Label>
+                    <div className="space-y-3">
+                      <label
+                        className={cn(
+                          "flex items-start gap-3 p-4 border-2 rounded-lg cursor-pointer transition-colors",
+                          qwenIsShared === 0 ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="qwenAccountType"
+                          value="exclusive"
+                          checked={qwenIsShared === 0}
+                          onChange={() => setQwenIsShared(0)}
+                          className="w-4 h-4 mt-1"
+                        />
+                        <div className="flex-1">
+                          <h3 className="font-semibold">专属（默认）</h3>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            只供自己使用，不参与共享池
+                          </p>
+                        </div>
+                      </label>
+
+                      <label
+                        className={cn(
+                          "flex items-start gap-3 p-4 border-2 rounded-lg cursor-pointer transition-colors",
+                          qwenIsShared === 1 ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="qwenAccountType"
+                          value="shared"
+                          checked={qwenIsShared === 1}
+                          onChange={() => setQwenIsShared(1)}
+                          className="w-4 h-4 mt-1"
+                        />
+                        <div className="flex-1">
+                          <h3 className="font-semibold">共享</h3>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            可被共享池调度（适合团队/共享算力）
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label htmlFor="qwen-credential-json" className="text-base font-semibold">
+                      credential_json
+                    </Label>
+                    <Textarea
+                      id="qwen-credential-json"
+                      placeholder="在此粘贴 QwenCli 导出的 JSON"
+                      value={qwenCredentialJson}
+                      onChange={(e) => setQwenCredentialJson(e.target.value)}
+                      className="font-mono text-sm min-h-[220px]"
+                    />
+                  </div>
+                </>
+              ) : platform === 'antigravity' && loginMethod === 'refresh_token' ? (
                 <>
                   <div className="space-y-3">
                     <Label className="text-base font-semibold">Refresh Token 导入</Label>
@@ -1144,7 +1372,15 @@ export function AddAccountDrawer({ open, onOpenChange, onSuccess }: AddAccountDr
           )}
 
           {step === 'authorize' ? (
-            platform === 'kiro' ? (
+            platform === 'qwen' ? (
+              <StatefulButton
+                onClick={handleImportQwenAccount}
+                disabled={!qwenCredentialJson.trim()}
+                className="flex-1 cursor-pointer"
+              >
+                完成导入
+              </StatefulButton>
+            ) : platform === 'kiro' ? (
               // Kiro账号不需要手动提交
               kiroLoginMethod === 'refresh_token' ? (
                 <StatefulButton

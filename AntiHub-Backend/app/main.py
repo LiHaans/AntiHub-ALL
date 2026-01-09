@@ -25,6 +25,7 @@ from app.api.routes import (
     v1_router,
     usage_router,
     kiro_router,
+    qwen_router,
     anthropic_router,
     gemini_router
 )
@@ -164,6 +165,7 @@ def create_app() -> FastAPI:
     app.include_router(api_keys_router, prefix="/api")
     app.include_router(usage_router, prefix="/api")
     app.include_router(kiro_router)  # Kiro账号管理API
+    app.include_router(qwen_router)  # Qwen账号管理API
     app.include_router(v1_router)  # OpenAI兼容API，支持Antigravity和Kiro配置
     app.include_router(anthropic_router)  # Anthropic兼容API (/v1/messages)
     app.include_router(gemini_router)  # Gemini兼容API (/v1beta/models/{model}:generateContent)

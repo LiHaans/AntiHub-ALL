@@ -33,7 +33,7 @@ export default function SettingsPage() {
   const [deletingKeyId, setDeletingKeyId] = useState<number | null>(null);
   const [preferShared, setPreferShared] = useState<number>(0); // 0=专属优先, 1=共享优先
   const [isUpdatingPreference, setIsUpdatingPreference] = useState(false);
-  const [selectedConfigType, setSelectedConfigType] = useState<'antigravity' | 'kiro'>('antigravity');
+  const [selectedConfigType, setSelectedConfigType] = useState<'antigravity' | 'kiro' | 'qwen'>('antigravity');
   const [keyName, setKeyName] = useState('');
 
   const [apiEndpoint, setApiEndpoint] = useState(() => getPublicApiBaseUrl());
@@ -474,6 +474,33 @@ export default function SettingsPage() {
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
                     使用Kiro账号配额
+                  </p>
+                </div>
+              </label>
+
+              {/* Qwen */}
+              <label
+                className={cn(
+                  "flex items-start gap-3 p-4 border-2 rounded-lg cursor-pointer transition-colors",
+                  selectedConfigType === 'qwen'
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/50"
+                )}
+              >
+                <input
+                  type="radio"
+                  name="config_type"
+                  value="qwen"
+                  checked={selectedConfigType === 'qwen'}
+                  onChange={() => setSelectedConfigType('qwen')}
+                  className="w-4 h-4 mt-1"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold">Qwen</h3>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    使用Qwen账号配额
                   </p>
                 </div>
               </label>

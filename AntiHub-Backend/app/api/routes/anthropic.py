@@ -134,9 +134,9 @@ async def create_message(
     3. Authorization Bearer JWT token - 用于网页聊天，默认使用Antigravity配置，但可以通过X-Api-Type请求头指定配置
     
     **配置选择:**
-    - 使用API key时，根据创建时选择的config_type（antigravity/kiro）自动路由
-    - 使用JWT token时，默认使用Antigravity配置，但可以通过X-Api-Type请求头指定配置
-    - Kiro配置需要beta权限
+    - 使用API key时，根据创建时选择的config_type（antigravity/kiro/qwen）自动路由
+    - 使用JWT token时，默认使用Antigravity配置，但可以通过X-Api-Type请求头指定配置（antigravity/kiro/qwen）
+    - Kiro配置需要beta权限（qwen不需要）
     
     **格式转换:**
     - 接收Anthropic Messages API格式的请求
@@ -156,7 +156,7 @@ async def create_message(
         # 如果是JWT token认证（无_config_type），检查请求头
         if config_type is None:
             api_type = raw_request.headers.get("X-Api-Type")
-            if api_type in ["kiro", "antigravity"]:
+            if api_type in ["kiro", "antigravity", "qwen"]:
                 config_type = api_type
         
         use_kiro = config_type == "kiro"

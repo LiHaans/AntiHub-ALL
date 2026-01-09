@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useRef, useEffect } from "react";
+import React, { useMemo, useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/lib/utils";
 
@@ -15,10 +15,6 @@ export const Tooltip = ({
   const [isVisible, setIsVisible] = useState(false);
   const [mouse, setMouse] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [height, setHeight] = useState(0);
-  const [position, setPosition] = useState<{ x: number; y: number }>({
-    x: 0,
-    y: 0,
-  });
   const contentRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -40,7 +36,7 @@ export const Tooltip = ({
 
     // Get tooltip dimensions
     const tooltipWidth = 240; // min-w-[15rem] = 240px
-    const tooltipHeight = tooltip.scrollHeight;
+    const tooltipHeight = height || tooltip.scrollHeight;
 
     // Calculate fixed position relative to viewport
     const absoluteX = containerRect.left + mouseX;
@@ -74,8 +70,6 @@ export const Tooltip = ({
 
   const updateMousePosition = (mouseX: number, mouseY: number) => {
     setMouse({ x: mouseX, y: mouseY });
-    const newPosition = calculatePosition(mouseX, mouseY);
-    setPosition(newPosition);
   };
 
   const handleMouseEnter = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -88,7 +82,6 @@ export const Tooltip = ({
 
   const handleMouseLeave = () => {
     setMouse({ x: 0, y: 0 });
-    setPosition({ x: 0, y: 0 });
     setIsVisible(false);
   };
 
@@ -114,7 +107,6 @@ export const Tooltip = ({
     setTimeout(() => {
       setIsVisible(false);
       setMouse({ x: 0, y: 0 });
-      setPosition({ x: 0, y: 0 });
     }, 2000);
   };
 
@@ -125,7 +117,6 @@ export const Tooltip = ({
       if (isVisible) {
         setIsVisible(false);
         setMouse({ x: 0, y: 0 });
-        setPosition({ x: 0, y: 0 });
       } else {
         const rect = e.currentTarget.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
@@ -136,13 +127,10 @@ export const Tooltip = ({
     }
   };
 
-  // Update position when tooltip becomes visible or content changes
-  useEffect(() => {
-    if (isVisible && contentRef.current) {
-      const newPosition = calculatePosition(mouse.x, mouse.y);
-      setPosition(newPosition);
-    }
-  }, [isVisible, height, mouse.x, mouse.y]);
+  const position = useMemo(() => {
+    if (!isVisible) return { x: 0, y: 0 };
+    return calculatePosition(mouse.x, mouse.y);
+  }, [height, isVisible, mouse.x, mouse.y]);
 
   return (
     <div
