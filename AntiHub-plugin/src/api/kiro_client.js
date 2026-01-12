@@ -18,23 +18,23 @@ class KiroClient {
    */
   async getAvailableAccount(user_id, excludeAccountIds = []) {
     let accounts = await kiroAccountService.getAvailableAccounts(user_id);
-    
+
     // 排除已经尝试失败的账号
     if (excludeAccountIds.length > 0) {
       accounts = accounts.filter(acc => !excludeAccountIds.includes(acc.account_id));
     }
-    
+
     if (accounts.length === 0) {
       throw new Error('没有可用的Kiro账号，请先添加账号');
     }
 
     // 随机选择一个账号
     const account = accounts[Math.floor(Math.random() * accounts.length)];
-    
+
     // 检查token是否过期
     if (kiroAccountService.isTokenExpired(account)) {
       logger.info(`Kiro账号token已过期，正在刷新: account_id=${account.account_id}`);
-      
+
       try {
         const tokenData = await kiroService.refreshToken({
           machineid: account.machineid,
@@ -43,7 +43,7 @@ class KiroClient {
           clientId: account.client_id,
           clientSecret: account.client_secret
         });
-        
+
         const expires_at = Date.now() + (tokenData.expires_in * 1000);
         await kiroAccountService.updateAccountToken(
           account.account_id,
@@ -51,14 +51,14 @@ class KiroClient {
           expires_at,
           tokenData.profile_arn
         );
-        
+
         account.access_token = tokenData.access_token;
         account.expires_at = expires_at;
       } catch (refreshError) {
         // 刷新token失败，标记账号需要重新授权
         logger.error(`Kiro账号刷新token失败，标记需要重新授权: account_id=${account.account_id}, error=${refreshError.message}`);
         await kiroAccountService.markAccountNeedRefresh(account.account_id);
-        
+
         // 尝试获取下一个可用账号
         const newExcludeList = [...excludeAccountIds, account.account_id];
         return this.getAvailableAccount(user_id, newExcludeList);
@@ -79,7 +79,7 @@ class KiroClient {
   async generateResponse(messages, model, callback, user_id, options = {}) {
     const account = await this.getAvailableAccount(user_id);
     const requestId = crypto.randomUUID().substring(0, 8);
-    
+
     logger.info(`[${requestId}] 开始Kiro请求: model=${model}, user_id=${user_id}, account_id=${account.account_id}`);
 
     // 转换请求格式
@@ -105,13 +105,13 @@ class KiroClient {
           res.on('data', chunk => errorBody += chunk);
           res.on('end', () => {
             logger.error(`[${requestId}] API错误: ${res.statusCode} - ${errorBody}`);
-            
+
             // 402 或 403 错误时自动禁用账号
             if (res.statusCode === 402 || res.statusCode === 403) {
               kiroAccountService.updateAccountStatus(account.account_id, 0);
               logger.warn(`Kiro账号已禁用(${res.statusCode}): account_id=${account.account_id}`);
             }
-            
+
             reject(new Error(`错误: ${res.statusCode} ${errorBody}`));
           });
           return;
@@ -124,7 +124,7 @@ class KiroClient {
           model_id: model,
           is_shared: account.is_shared
         };
-        
+
         this.handleStreamResponse(res, callback, requestId, contextInfo)
           .then(() => {
             logger.info(`[${requestId}] 请求完成`);
@@ -165,7 +165,7 @@ class KiroClient {
         // 解析事件流消息
         while (buffer.length >= 16) {
           const totalLength = buffer.readUInt32BE(0);
-          
+
           if (totalLength < 16 || totalLength > 16 * 1024 * 1024) {
             buffer = buffer.slice(1);
             continue;
@@ -257,7 +257,7 @@ class KiroClient {
     if (message.name && message.toolUseId) {
       // Anthropic 格式: { name: "WebSearch", toolUseId: "xxx", input: {...} }
       // 转换为 OpenAI 流式格式
-      
+
       // 获取或分配工具调用索引
       let toolCallIndex;
       if (toolCallIndexMap.has(message.toolUseId)) {
@@ -267,7 +267,7 @@ class KiroClient {
         toolCallIndexMap.set(message.toolUseId, toolCallIndex);
         indexCounter.value++; // 递增计数器
       }
-      
+
       const toolCall = {
         index: toolCallIndex,
         id: message.toolUseId,
@@ -288,7 +288,7 @@ class KiroClient {
         logger.warn(`[${requestId}] 收到未知工具调用的input: toolUseId=${message.toolUseId}`);
         return;
       }
-      
+
       // 将 input 对象转换为 JSON 字符串，模拟流式传输
       const args = typeof message.input === 'string' ? message.input : JSON.stringify(message.input);
       callback({
@@ -315,7 +315,7 @@ class KiroClient {
     // 处理usage消息（记录消费日志并更新账号余额）
     if (message.usage && typeof message.usage === 'number' && contextInfo) {
       logger.info(`[${requestId}] 检测到usage: ${message.usage}, 准备记录消费日志并更新余额`);
-      
+
       // 异步记录消费日志并更新余额，不阻塞响应流
       this.logConsumptionAndUpdateBalance(requestId, contextInfo, message.usage)
         .catch(error => {
@@ -349,8 +349,15 @@ class KiroClient {
 
     // 3. 从上游获取最新的使用量信息
     try {
+      // 检查 profile_arn 是否存在，如果不存在则跳过更新余额
+      // IdC 认证方式的账号可能没有 profile_arn
+      if (!account.profile_arn) {
+        logger.warn(`[${requestId}] 账号缺少 profile_arn，跳过更新余额: account_id=${contextInfo.account_id}, auth_method=${account.auth_method}`);
+        return;
+      }
+
       logger.info(`[${requestId}] 从上游获取最新余额信息: account_id=${contextInfo.account_id}`);
-      
+
       // 检查token是否过期，如果过期则刷新
       let accessToken = account.access_token;
       if (kiroAccountService.isTokenExpired(account)) {
@@ -363,7 +370,7 @@ class KiroClient {
             clientId: account.client_id,
             clientSecret: account.client_secret
           });
-          
+
           const expires_at = Date.now() + (tokenData.expires_in * 1000);
           await kiroAccountService.updateAccountToken(
             account.account_id,
@@ -371,8 +378,13 @@ class KiroClient {
             expires_at,
             tokenData.profile_arn
           );
-          
+
           accessToken = tokenData.access_token;
+
+          // 如果刷新后获取到了 profile_arn，更新本地引用
+          if (tokenData.profile_arn && !account.profile_arn) {
+            account.profile_arn = tokenData.profile_arn;
+          }
         } catch (refreshError) {
           // 刷新token失败，标记账号需要重新授权
           logger.error(`[${requestId}] 刷新token失败，标记账号需要重新授权: account_id=${account.account_id}, error=${refreshError.message}`);
@@ -380,6 +392,12 @@ class KiroClient {
           // 这里不抛出错误，因为消费日志已经记录成功，只是无法更新余额
           return;
         }
+      }
+
+      // 再次检查 profile_arn（刷新token后可能获取到了）
+      if (!account.profile_arn) {
+        logger.warn(`[${requestId}] 刷新token后仍缺少 profile_arn，跳过更新余额: account_id=${contextInfo.account_id}`);
+        return;
       }
 
       // 调用上游API获取最新使用量

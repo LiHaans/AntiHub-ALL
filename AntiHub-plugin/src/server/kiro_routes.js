@@ -45,7 +45,7 @@ const authenticateApiKey = async (req, res, next) => {
   }
 
   const apiKey = authHeader.slice(7);
-  
+
   // 检查是否是管理员API Key
   if (apiKey === config.security?.adminApiKey) {
     req.isAdmin = true;
@@ -124,7 +124,7 @@ router.get('/api/kiro/oauth/status/:state', async (req, res) => {
 
     // 从Redis获取OAuth状态信息
     const stateInfo = await kiroService.getOAuthStateInfo(state);
-    
+
     if (!stateInfo) {
       return res.status(404).json({
         error: '无效或已过期的state参数',
@@ -583,10 +583,12 @@ router.get('/api/kiro/accounts/:account_id/balance', authenticateApiKey, async (
       return res.status(403).json({ error: '无权访问此账号余额' });
     }
 
-    // 检查token是否过期，如果过期则刷新
-    if (kiroAccountService.isTokenExpired(account)) {
-      logger.info(`Kiro账号token已过期，正在刷新: account_id=${account.account_id}`);
-      
+    // 检查是否需要刷新token：token过期 或 缺少profile_arn时都需要刷新
+    const needRefresh = kiroAccountService.isTokenExpired(account) || !account.profile_arn;
+    if (needRefresh) {
+      const reason = kiroAccountService.isTokenExpired(account) ? 'token已过期' : '缺少profile_arn';
+      logger.info(`Kiro账号需要刷新token (${reason}): account_id=${account.account_id}`);
+
       const tokenData = await kiroService.refreshToken({
         machineid: account.machineid,
         auth: account.auth_method,
@@ -594,7 +596,7 @@ router.get('/api/kiro/accounts/:account_id/balance', authenticateApiKey, async (
         clientId: account.client_id,
         clientSecret: account.client_secret
       });
-      
+
       const expires_at = Date.now() + (tokenData.expires_in * 1000);
       await kiroAccountService.updateAccountToken(
         account.account_id,
@@ -602,9 +604,23 @@ router.get('/api/kiro/accounts/:account_id/balance', authenticateApiKey, async (
         expires_at,
         tokenData.profile_arn
       );
-      
+
       account.access_token = tokenData.access_token;
       account.expires_at = expires_at;
+
+      // 如果刷新后获取到了 profile_arn，更新本地引用
+      if (tokenData.profile_arn) {
+        account.profile_arn = tokenData.profile_arn;
+      }
+    }
+
+    // 检查 profile_arn 是否存在，如果不存在则无法查询余额
+    if (!account.profile_arn) {
+      logger.warn(`Kiro账号缺少 profile_arn，无法查询余额: account_id=${account_id}, auth_method=${account.auth_method}`);
+      return res.status(400).json({
+        error: '该账号缺少 profile_arn，无法查询余额。请尝试重新登录该账号。',
+        auth_method: account.auth_method
+      });
     }
 
     // 获取最新的使用量信息
@@ -889,7 +905,7 @@ router.post('/v1/kiro/chat/completions', authenticateApiKey, async (req, res) =>
         if (responseEnded) {
           return;
         }
-        
+
         try {
           if (data.type === 'tool_call_start') {
             // OpenAI 流式格式：首次发送工具调用（包含 id, type, function.name）
@@ -1017,20 +1033,20 @@ router.post('/v1/kiro/chat/completions', authenticateApiKey, async (req, res) =>
       // 根据错误类型返回适当的状态码
       let statusCode = 500;
       let errorMessage = error.message;
-      
+
       // 检查是否是配额耗尽或无可用账号的错误
       if (error.message.includes('没有可用的Kiro账号') ||
-          error.message.includes('配额') ||
-          error.message.includes('quota') ||
-          error.message.includes('limit')) {
+        error.message.includes('配额') ||
+        error.message.includes('quota') ||
+        error.message.includes('limit')) {
         statusCode = 429; // Too Many Requests
         errorMessage = '所有账号配额已耗尽，请稍后再试';
       } else if (error.message.includes('认证') ||
-                 error.message.includes('授权') ||
-                 error.message.includes('token')) {
+        error.message.includes('授权') ||
+        error.message.includes('token')) {
         statusCode = 401; // Unauthorized
       }
-      
+
       // 对于流式响应，如果还没有发送响应头，则设置状态码
       if (!res.headersSent) {
         res.status(statusCode).json({
@@ -1130,27 +1146,27 @@ router.post('/v1/kiro/chat/completions', authenticateApiKey, async (req, res) =>
       });
     } catch (error) {
       logger.error('Kiro生成响应失败:', error.message);
-      
+
       // 根据错误类型返回适当的状态码
       let statusCode = 500;
       let errorMessage = error.message;
       let errorType = 'api_error';
-      
+
       // 检查是否是配额耗尽或无可用账号的错误
       if (error.message.includes('没有可用的Kiro账号') ||
-          error.message.includes('配额') ||
-          error.message.includes('quota') ||
-          error.message.includes('limit')) {
+        error.message.includes('配额') ||
+        error.message.includes('quota') ||
+        error.message.includes('limit')) {
         statusCode = 429; // Too Many Requests
         errorMessage = '所有账号配额已耗尽，请稍后再试';
         errorType = 'insufficient_quota';
       } else if (error.message.includes('认证') ||
-                 error.message.includes('授权') ||
-                 error.message.includes('token')) {
+        error.message.includes('授权') ||
+        error.message.includes('token')) {
         statusCode = 401; // Unauthorized
         errorType = 'authentication_error';
       }
-      
+
       res.status(statusCode).json({
         error: errorMessage,
         type: errorType

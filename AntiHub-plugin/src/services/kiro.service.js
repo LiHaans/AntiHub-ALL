@@ -191,14 +191,14 @@ class KiroService {
         logger.warn(`OAuth状态不存在: state=${state}`);
         return false;
       }
-      
+
       // 合并更新
       const updatedInfo = { ...info, ...updates };
-      
+
       // 计算剩余TTL（如果有的话）
       const ttl = 600; // 默认10分钟
       await redisService.set(`${KIRO_OAUTH_KEY_PREFIX}${state}`, updatedInfo, ttl);
-      
+
       logger.info(`OAuth状态已更新: state=${state}`);
       return true;
     } catch (error) {
@@ -455,9 +455,13 @@ class KiroService {
             try {
               const data = JSON.parse(body);
               logger.info(`[${requestId}] Kiro IdC Token刷新成功, expires_in=${data.expiresIn}`);
+              // 添加调试日志，查看完整响应
+              logger.debug(`[${requestId}] IdC Token响应数据:`, JSON.stringify(data));
               resolve({
                 access_token: data.accessToken,
-                expires_in: data.expiresIn
+                expires_in: data.expiresIn,
+                // 尝试从响应中提取 profileArn（IdC可能返回也可能不返回）
+                profile_arn: data.profileArn || null
               });
             } catch (error) {
               logger.error(`[${requestId}] JSON解析失败:`, error.message);
@@ -505,7 +509,7 @@ class KiroService {
   getCodeWhispererHeaders(accessToken, machineid) {
     const invocationId = crypto.randomUUID();
     const kiroUserAgent = `KiroIDE-${KIRO_IDE_VERSION}-${machineid}`;
-    
+
     return {
       'Content-Type': 'application/json',
       'x-amzn-codewhisperer-optout': 'true',
@@ -598,7 +602,7 @@ class KiroService {
   convertToCodeWhispererRequest(messages, model, options = {}) {
     // 先处理 thinking parts，将其转换为普通 text parts
     const patchedMessages = this.patchThinkingParts(messages);
-    
+
     const modelId = this.getKiroModelId(model);
     const conversationId = crypto.randomUUID();
     const agentContinuationId = crypto.randomUUID();
@@ -612,9 +616,9 @@ class KiroService {
 
     // 添加系统消息到历史
     if (systemMessages.length > 0) {
-      const systemContent = systemMessages.map(m => 
-        typeof m.content === 'string' ? m.content : 
-        m.content.filter(c => c.type === 'text').map(c => c.text).join('\n')
+      const systemContent = systemMessages.map(m =>
+        typeof m.content === 'string' ? m.content :
+          m.content.filter(c => c.type === 'text').map(c => c.text).join('\n')
       ).join('\n');
 
       history.push({
@@ -720,13 +724,13 @@ class KiroService {
 
     // 处理当前消息（最后一条）
     const lastMessage = nonSystemMessages[nonSystemMessages.length - 1];
-    
+
     // 检查最后一条消息是否是tool消息（OpenAI格式的工具结果）
     const isToolMessage = lastMessage.role === 'tool';
-    
+
     let currentContent = isToolMessage ? '' : this.extractTextContent(lastMessage.content);
     const currentImages = isToolMessage ? [] : this.extractImages(lastMessage.content);
-    
+
     // 提取工具结果：从user消息的content中提取tool_result块，或从tool消息转换
     let currentToolResults = [];
     if (isToolMessage) {
@@ -754,7 +758,7 @@ class KiroService {
           }
         }
       }
-      
+
       // 获取工具结果的文本内容（用于 history 中的 userInputMessage.content）
       const toolResultTextContent = currentToolResults.map(tr =>
         tr.content.map(c => c.text || '').join('')
@@ -773,7 +777,7 @@ class KiroService {
           }
         }
       });
-      
+
       history.push({
         assistantResponseMessage: {
           content: 'I will follow these instructions.'
@@ -859,14 +863,14 @@ class KiroService {
    */
   extractImages(content) {
     if (!Array.isArray(content)) return [];
-    
+
     const images = [];
-    
+
     for (const block of content) {
       // OpenAI格式: image_url
       if (block.type === 'image_url' && block.image_url?.url) {
         const url = block.image_url.url;
-        
+
         // 处理base64 data URL
         if (url.startsWith('data:')) {
           const match = url.match(/^data:image\/(\w+);base64,(.+)$/);
@@ -892,7 +896,7 @@ class KiroService {
         });
       }
     }
-    
+
     return images;
   }
 
@@ -908,7 +912,7 @@ class KiroService {
         if (typeof b.content === 'string') {
           contentArray = [{ text: b.content }];
         } else if (Array.isArray(b.content)) {
-          contentArray = b.content.map(item => 
+          contentArray = b.content.map(item =>
             typeof item === 'string' ? { text: item } : item
           );
         } else if (b.content) {
@@ -947,7 +951,7 @@ class KiroService {
     } else if (msg.content) {
       contentArray = [{ text: String(msg.content) }];
     }
-    
+
     if (contentArray.length === 0) {
       contentArray = [{ text: '' }];
     }
@@ -970,7 +974,7 @@ class KiroService {
    */
   extractToolUses(content, toolCalls = null) {
     const results = [];
-    
+
     // 处理Anthropic格式: content数组中的tool_use块
     if (Array.isArray(content)) {
       const anthropicToolUses = content
@@ -982,7 +986,7 @@ class KiroService {
         }));
       results.push(...anthropicToolUses);
     }
-    
+
     // 处理OpenAI格式: 顶层的tool_calls数组
     if (Array.isArray(toolCalls)) {
       const openaiToolUses = toolCalls
@@ -1001,7 +1005,7 @@ class KiroService {
           } else if (tc.input) {
             input = tc.input;
           }
-          
+
           return {
             toolUseId: tc.id,
             name: tc.function?.name || tc.name,
@@ -1010,7 +1014,7 @@ class KiroService {
         });
       results.push(...openaiToolUses);
     }
-    
+
     return results;
   }
 
@@ -1124,16 +1128,19 @@ class KiroService {
    */
   async getUsageLimits(accessToken, profileArn, machineid) {
     const requestId = crypto.randomUUID().substring(0, 8);
-    logger.info(`[${requestId}] 开始获取Kiro使用量信息`);
+    logger.info(`[${requestId}] 开始获取Kiro使用量信息, profileArn=${profileArn}, machineid=${machineid}`);
     return new Promise((resolve, reject) => {
       const params = new URLSearchParams({
-        isEmailRequired: true,
+        isEmailRequired: 'true',
         origin: 'AI_EDITOR',
         resourceType: 'AGENTIC_REQUEST'
       });
       if (typeof profileArn === 'string' && profileArn.trim()) {
         params.append('profileArn', profileArn.trim());
+      } else {
+        logger.warn(`[${requestId}] profileArn 未提供或无效: ${profileArn}`);
       }
+      logger.debug(`[${requestId}] 请求参数: ${params.toString()}`);
 
       const invocationId = crypto.randomUUID();
       const kiroUserAgent = `KiroIDE-${KIRO_IDE_VERSION}-${machineid}`;
@@ -1160,7 +1167,7 @@ class KiroService {
             try {
               const data = JSON.parse(body);
               logger.info(`[${requestId}] 获取使用量信息成功`);
-              
+
               // 解析使用量数据
               const result = this.parseUsageLimits(data);
               resolve(result);
@@ -1220,9 +1227,9 @@ class KiroService {
           // 是否激活（布尔值）
           result.free_trial_status = breakdown.freeTrialInfo.freeTrialStatus === 'ACTIVE';
           result.free_trial_usage = breakdown.freeTrialInfo.currentUsageWithPrecision ||
-                                     breakdown.freeTrialInfo.currentUsage || 0;
+            breakdown.freeTrialInfo.currentUsage || 0;
           result.free_trial_limit = breakdown.freeTrialInfo.usageLimitWithPrecision ||
-                                     breakdown.freeTrialInfo.usageLimit || 0;
+            breakdown.freeTrialInfo.usageLimit || 0;
           if (breakdown.freeTrialInfo.freeTrialExpiry) {
             // freeTrialExpiry是Unix时间戳（秒，可能带小数），需要乘以1000转为毫秒
             result.free_trial_expiry = new Date(breakdown.freeTrialInfo.freeTrialExpiry * 1000).toISOString();
@@ -1239,10 +1246,10 @@ class KiroService {
             if (bonus.status === 'ACTIVE') {
               const bonusUsage = bonus.currentUsage || 0;
               const bonusLimit = bonus.usageLimit || 0;
-              
+
               totalBonusUsage += bonusUsage;
               totalBonusLimit += bonusLimit;
-              
+
               bonusDetails.push({
                 type: 'bonus',
                 name: bonus.displayName || bonus.bonusCode,
@@ -1267,7 +1274,7 @@ class KiroService {
         result.bonus_limit = totalBonusLimit;
         result.bonus_available = Math.max(0, totalBonusLimit - totalBonusUsage);
         result.bonus_details = bonusDetails;
-        
+
         break;
       }
     }
